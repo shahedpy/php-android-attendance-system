@@ -1,62 +1,45 @@
 <?php
-session_start();
-include_once('config.php');
+require_once('../app/bootstrap.php');
 
-if($_SERVER['REQUEST_METHOD']=="POST"){
-    $username = $_POST['username'];
-    $password = md5($_POST['password']);
+use App\Controllers\LoginController;
+use App\Models\User;
 
-    //DATABASE
-    $SERVER = "localhost";
-    $USER = "root";
-    $PASS = "";
-    $DB = "saic";
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header('Location: ../login/');
+    exit();
+}
 
-    //Connect Database
-    $mysqli = new mysqli($SERVER, $USER, $PASS, $DB);
+// JSON API request (from Android app)
+$isApi = !empty($_POST['api'])
+    || (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false);
 
-    //Check Connection
-    if($mysqli->connect_errno){
-        $_SESSION['error_message'] = $mysqli->connect_error;
-        header('location: ../');
+if ($isApi) {
+    header('Content-Type: application/json');
+
+    $username = trim($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
+
+    $userModel = new User();
+    $user = $userModel->findByUsername($username);
+
+    if (!$user || !$userModel->passwordMatches($user, $password)) {
+        echo json_encode(['success' => false, 'message' => 'Invalid credentials']);
         exit();
     }
 
-    //SQL Query
-    $SQL = "SELECT * FROM `users` WHERE `username`='$username' AND `password`='$password'";
+    if (!$userModel->isActive($user)) {
+        echo json_encode(['success' => false, 'message' => 'Account is inactive']);
+        exit();
+    }
 
-    //Perform Query
-    if ($result = $mysqli -> query($SQL)) {
-        
-        if($result->num_rows==1){
-
-            // $active = 
-
-            $row = $result->fetch_assoc();
-            
-            if($row['active']==1){
-                $_SESSION['username'] = $username;
-                header("location: ../dashboard");
-            } else {
-                $_SESSION['error_message'] = "Your account is inactive";
-                header("location: ../");
-            }
-            
-
-            
-
-        } else {
-            $_SESSION['error_message'] = "Username or Password Error!";
-            header('location: ../');
-        }
-        
-      } else {
-          $_SESSION['error_message'] = $mysqli -> error;
-          header('location: ../');
-      }
-
-    
-
-} else {
-    header("location: ..");
+    echo json_encode([
+        'success'  => true,
+        'username' => $username,
+        'role'     => $userModel->detectRole($user),
+    ]);
+    exit();
 }
+
+// Web form login
+$controller = new LoginController();
+$controller->login($_POST);
